@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>DEAD ZONE: PROGRESSIVE HORROR</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getDatabase, ref, set, onValue, onDisconnect, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+        
+        const firebaseConfig = {
+    apiKey: "AIzaSyDWriKzugeUHHXnkobOwFqhPara9AtHaj4",
+    authDomain: "dead-zone-game-52362.firebaseapp.com",
+    projectId: "dead-zone-game-52362",
+    storageBucket: "dead-zone-game-52362.firebasestorage.app",
+    messagingSenderId: "220061895132",
+    appId: "1:220061895132:web:b6e6c42b67cd00c7d4e719",
+    measurementId: "G-79L6TQBXZL"
+  };
+
+        try {
+            if (firebaseConfig.apiKey !== "YOUR_KEY") {
+                const app = initializeApp(firebaseConfig);
+                window.db = getDatabase(app);
+                window.fbUpdate = update;
+                window.fbRef = ref;
+                window.fbOnDisconnect = onDisconnect;
+                window.fbOnValue = onValue;
+            } else {
+                console.log("Firebase credentials standard preview mode activated safely.");
+            }
+        } catch(e) { 
+            console.log("Firebase connection bypassed cleanly."); 
+        }
+    </script>
+    <style>
+        body { margin: 0; overflow: hidden; background: #050508; touch-action: none; font-family: 'Segoe UI', sans-serif; }
+        .hud { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 50; }
+        .glass { background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.08); pointer-events: auto; }
+        #overlay { position: fixed; inset: 0; background: rgba(15,3,3,0.96); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 200; pointer-events: auto; color: white; }
+        #joystick-base { position: absolute; bottom: 40px; left: 40px; width: 100px; height: 100px; border: 2px solid #ef4444; border-radius: 50%; pointer-events: auto; background: rgba(255,0,0,0.05); }
+        #joystick-knob { position: absolute; top: 25px; left: 25px; width: 50px; height: 50px; background: #ef4444; border-radius: 50%; box-shadow: 0 0 15px #ef4444; }
+        #fire-btn { position: absolute; bottom: 50px; right: 40px; width: 90px; height: 90px; background: #b91c1c; border-radius: 50%; pointer-events: auto; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; border: 4px solid rgba(255,255,255,0.2); text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+    </style>
+</head>
+<body>
+    <div id="overlay">
+        <h1 id="status-msg" class="text-5xl font-black mb-6 text-red-700 italic tracking-wider animate-pulse">SQUAD WIPED OUT!</h1>
+        <p class="text-gray-400 mb-8 tracking-wide">The fog consumed your remaining energy allocations...</p>
+        <button onclick="location.reload()" class="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-full font-bold tracking-widest transition-all shadow-lg shadow-red-900/50">TRY AGAIN</button>
+    </div>
+    <div class="hud p-4">
+        <div class="flex justify-between items-start">
+            <div class="glass p-4 rounded-2xl w-56 border border-red-900/30">
+                <p class="text-[9px] text-red-500 font-black tracking-widest mb-2 animate-pulse">SURVIVAL PROTOCOL</p>
+                <div class="w-full h-2 bg-gray-950 rounded-full overflow-hidden border border-white/5">
+                    <div id="hp-bar" class="h-full bg-gradient-to-r from-red-600 to-red-500 w-full transition-all duration-300"></div>
+                </div>
+                <div class="flex justify-between mt-3 text-[10px] text-gray-400 font-mono">
+                    <span>ZONE: <span id="lvl-ui" class="text-red-500 font-bold">1</span></span>
+                    <span>ALIVE: <span id="count-ui" class="text-white">1</span></span>
+                </div>
+            </div>
+            
+            <div class="flex flex-col gap-2">
+                <button onclick="toggleDayNight()" class="glass px-4 py-2 rounded-xl text-gray-300 text-[10px] font-bold tracking-wider hover:text-white transition-all">🔦 FLASHLIGHT POWER</button>
+                <button id="revive-btn" class="hidden bg-emerald-700 px-4 py-2 rounded-xl text-white text-[10px] font-bold pointer-events-auto animate-bounce">➕ REVIVE SQUADMATE</button>
+            </div>
+        </div>
+        <div id="boss-hud" class="hidden absolute top-20 left-1/2 -translate-x-1/2 w-72 glass p-3 rounded-xl border-t-2 border-red-700 shadow-2xl shadow-red-950">
+            <p class="text-[10px] text-red-600 font-black text-center mb-1 uppercase tracking-widest italic animate-pulse">⚠️ COLOSSAL AMALGAM UNLEASHED ⚠️</p>
+            <div class="w-full h-3 bg-gray-950 rounded-full overflow-hidden p-[1px] border border-white/5"><div id="boss-hp" class="h-full bg-gradient-to-r from-red-800 to-red-600 w-full transition-all duration-100"></div></div>
+        </div>
+    </div>
+    <div id="joystick-base"><div id="joystick-knob"></div></div>
+    <div id="fire-btn">FIRE</div>
+
+    <script type="module">
+        let scene, camera, renderer, player, clock, ambLight, sun;
+        let otherPlayers = {}, zombies = [], bullets = [];
+        let joystick = { active: false, x: 0, y: 0 };
+        let health = 100, currentLevel = 1, isDay = true, myId = "P_" + Math.floor(Math.random()*9999);
+        let isDowned = false;
+        let lastLookX = 0;
+        
+        let visibilityRange = 60; // Dynamic proximal limit checker variable
+
+        function init() {
+            scene = new THREE.Scene();
+            
+            // --- FIX: START LEVEL 1 CLEAR EVENING ENVIRONMENT ---
+            scene.background = new THREE.Color(0xa3b8cc); // Bright neutral slate sky layout
+            scene.fog = new THREE.FogExp2(0xa3b8cc, 0.008); // Near to zero foggy layers at level 1
+            
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            // Stable high performance illumination configs
+            ambLight = new THREE.AmbientLight(0xffffff, 0.9); // High light metrics on base environment
+            scene.add(ambLight);
+            
+            sun = new THREE.DirectionalLight(0xffffff, 1.0);
+            sun.position.set(15, 60, 15);
+            scene.add(sun);
+
+            const ground = new THREE.Mesh(
+                new THREE.PlaneGeometry(1000, 1000), 
+                new THREE.MeshStandardMaterial({ color: 0x22252a, roughness: 0.8 })
+            );
+            ground.rotation.x = -Math.PI/2;
+            scene.add(ground);
+
+            for(let i=0; i<30; i++) createBuilding(Math.random()*200-100, Math.random()*200-100);
+
+            player = createCharacter(0x3b82f6, true);
+            scene.add(player);
+
+            clock = new THREE.Clock();
+            setupControls();
+
+            if(window.db) initMultiplayer();
+
+            spawnLevel();
+            animate();
+        }
+
+        function createBuilding(x, z) {
+            const h = Math.random()*15+5;
+            const b = new THREE.Mesh(new THREE.BoxGeometry(6, h, 6), new THREE.MeshStandardMaterial({ color: 0x3a3d45, roughness: 0.7 }));
+            b.position.set(x, h/2, z);
+            scene.add(b);
+        }
+
+        function drawZombieHealthBar(zGroup, percent) {
+            const ctx = zGroup.userData.hpCtx;
+            if(!ctx) return;
+            ctx.clearRect(0, 0, 128, 32);
+            ctx.fillStyle = 'rgba(30,0,0,0.8)'; ctx.fillRect(14, 8, 100, 14); 
+            ctx.fillStyle = '#dc2626'; ctx.fillRect(14, 8, percent, 14); 
+            ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1.5; ctx.strokeRect(14, 8, 100, 14);
+            zGroup.userData.hpSprite.material.map.needsUpdate = true;
+        }
+
+        function createCharacter(color, isMe) {
+            const group = new THREE.Group();
+            const actualColor = (!isMe && color === 0x44ff44) ? 0x223a22 : color;
+            const mat = new THREE.MeshStandardMaterial({ color: actualColor, metalness: 0.1, roughness: 0.6 });
+            
+            const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 1, 4, 8), mat);
+            body.position.y = 0.9;
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.35), mat);
+            head.position.y = 1.9;
+            
+            group.add(body, head);
+
+            if(isMe) {
+                const gun = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.2, 0.9), new THREE.MeshStandardMaterial({ color: 0x111111 }));
+                gun.position.set(0.5, 1.2, 0.4);
+                group.add(gun);
+            } else {
+                const canvas = document.createElement('canvas');
+                canvas.width = 128; canvas.height = 32;
+                const ctx = canvas.getContext('2d');
+                
+                group.userData.hpCanvas = canvas;
+                group.userData.hpCtx = ctx;
+
+                const tex = new THREE.CanvasTexture(canvas);
+                const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex }));
+                sprite.position.y = 2.6; 
+                sprite.scale.set(1.4, 0.35, 1);
+                
+                group.add(sprite);
+                group.userData.hpSprite = sprite;
+
+                if (color === 0x44ff44) {
+                    drawZombieHealthBar(group, 100);
+                } else {
+                    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 20px Arial'; ctx.textAlign = 'center'; ctx.fillText('TEAM', 64, 24);
+                    tex.needsUpdate = true;
+                }
+            }
+            return group;
+        }
+
+        // --- PROGRESSIVE LEVEL HORROR ENVIRONMENT SWITCH LOGIC ---
+        function spawnLevel() {
+            zombies.forEach(z => scene.remove(z));
+            zombies = [];
+
+            const isBossLevel = currentLevel === 5;
+            const count = isBossLevel ? 1 : 6 + (currentLevel * 4);
+
+            // Dynamic progression dictionary configurations
+            let progressiveEnvironments = {
+                1: { skyColor: 0xa3b8cc, fogDensity: 0.005, viewRange: 70, lightIntensity: 1.0 }, // Level 1: Clear Day/Evening Base
+                2: { skyColor: 0x556270, fogDensity: 0.035, viewRange: 45, lightIntensity: 0.6 }, // Level 2: Dark Storm Cloud overcast
+                3: { skyColor: 0x1a3322, fogDensity: 0.065, viewRange: 30, lightIntensity: 0.4 }, // Level 3: Toxic green misty swamp
+                4: { skyColor: 0x080912, fogDensity: 0.120, viewRange: 16, lightIntensity: 0.25 }, // Level 4: Heavy pitch dark foggy void
+                5: { skyColor: 0x260202, fogDensity: 0.180, viewRange: 12, lightIntensity: 0.15 }  // Level 5: Pure Crimson Hell Big Boss Arena
+            };
+
+            let currentEnv = progressiveEnvironments[currentLevel];
+            visibilityRange = currentEnv.viewRange;
+
+            // Apply environment mutations seamlessly
+            scene.background = new THREE.Color(currentEnv.skyColor);
+            if (scene.fog) {
+                scene.fog.color.setHex(currentEnv.skyColor);
+                scene.fog.density = currentEnv.fogDensity;
+            }
+
+            // Adjust light scales to mimic loss of visibility across levels
+            ambLight.intensity = currentEnv.lightIntensity;
+            sun.intensity = currentEnv.lightIntensity;
+
+            if(isBossLevel) document.getElementById('boss-hud').classList.remove('hidden');
+            else document.getElementById('boss-hud').classList.add('hidden');
+
+            for(let i=0; i<count; i++) {
+                const z = createCharacter(0x44ff44, false);
+                
+                if(isBossLevel) {
+                    z.scale.set(7.0, 7.0, 7.0); // Extreme Colossal Big Boss sizing transformation bounds
+                    z.userData.hp = 4000;
+                    z.userData.isBoss = true;
+                } else {
+                    z.userData.hp = 100 + (currentLevel * 45);
+                    z.userData.isBoss = false;
+                }
+                z.userData.maxHp = z.userData.hp;
+
+                const angle = Math.random() * Math.PI * 2;
+                const distance = 30 + Math.random() * 50;
+                z.position.set(
+                    player.position.x + Math.cos(angle) * distance,
+                    0,
+                    player.position.z + Math.sin(angle) * distance
+                );
+
+                // Start invisible structure layout setups
+                z.visible = false; 
+
+                scene.add(z);
+                zombies.push(z);
+            }
+        }
+
+        function initMultiplayer() {
+            const pRef = window.fbRef(window.db, 'players/' + myId);
+            window.fbOnDisconnect(pRef).remove();
+
+            setInterval(() => {
+                if(!isDowned && window.db) {
+                    window.fbUpdate(pRef, { x: player.position.x, z: player.position.z, ry: player.rotation.y, status: "alive" });
+                }
+            }, 50);
+
+            window.fbOnValue(window.fbRef(window.db, 'players'), (snap) => {
+                const data = snap && typeof snap.val === 'function' ? snap.val() : snap;
+                const actualData = (data && typeof data.val === 'function') ? data.val() : data;
+                if(!actualData) return;
+                
+                document.getElementById('count-ui').innerText = Object.keys(actualData).length;
+                
+                for(let id in actualData) {
+                    if(id === myId) continue;
+                    if(!otherPlayers[id]) {
+                        otherPlayers[id] = createCharacter(0xffffff, false);
+                        scene.add(otherPlayers[id]);
+                    }
+                    otherPlayers[id].position.set(actualData[id].x, 0, actualData[id].z);
+                    otherPlayers[id].rotation.y = actualData[id].ry;
+
+                    if(actualData[id].status === "downed" && player.position.distanceTo(otherPlayers[id].position) < 3) {
+                        const rBtn = document.getElementById('revive-btn');
+                        rBtn.classList.remove('hidden');
+                        rBtn.onclick = () => {
+                            window.fbUpdate(window.fbRef(window.db, 'players/' + id), { status: "alive" });
+                            rBtn.classList.add('hidden');
+                        };
+                    }
+                }
+            });
+
+            window.fbOnValue(window.fbRef(window.db, `players/${myId}/status`), (snap) => {
+                const val = (snap && typeof snap.val === 'function') ? snap.val() : snap;
+                if(val === "alive" && isDowned) {
+                    isDowned = false;
+                    health = 60;
+                    document.getElementById('overlay').style.display = "none";
+                    document.getElementById('hp-bar').style.width = "60%";
+                }
+            });
+        }
+
+        function setupControls() {
+            const base = document.getElementById('joystick-base');
+            const knob = document.getElementById('joystick-knob');
+            
+            base.addEventListener('touchstart', (e) => { joystick.active = true; });
+            base.addEventListener('touchmove', (e) => {
+                const t = e.touches[0];
+                const r = base.getBoundingClientRect();
+                const dx = t.clientX - (r.left + 50), dy = t.clientY - (r.top + 50);
+                const d = Math.min(Math.sqrt(dx*dx + dy*dy), 40);
+                knob.style.transform = `translate(${dx*(d/40)}px, ${dy*(d/40)}px)`;
+                joystick.x = dx/40; joystick.y = dy/40;
+            });
+            base.addEventListener('touchend', () => { joystick.active = false; joystick.x = 0; joystick.y = 0; knob.style.transform = 'translate(0,0)'; });
+            
+            window.addEventListener('touchstart', (e) => {
+                for(let i=0; i<e.touches.length; i++) {
+                    if(e.touches[i].clientX > window.innerWidth / 2) {
+                        lastLookX = e.touches[i].clientX;
+                    }
+                }
+            });
+
+            window.addEventListener('touchmove', (e) => {
+                for(let i=0; i<e.touches.length; i++) {
+                    const touch = e.touches[i];
+                    if(touch.clientX > window.innerWidth / 2) {
+                        const deltaX = touch.clientX - lastLookX;
+                        player.rotation.y -= deltaX * 0.0045; 
+                        lastLookX = touch.clientX;
+                    }
+                }
+            });
+
+            document.getElementById('fire-btn').addEventListener('touchstart', shoot);
+        }
+
+        function shoot() {
+            if(isDowned) return;
+            const b = new THREE.Mesh(new THREE.SphereGeometry(0.18), new THREE.MeshBasicMaterial({ color: 0xffcc00 }));
+            b.position.copy(player.position).add(new THREE.Vector3(0, 1.4, 0));
+            const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(player.quaternion);
+            b.userData.velocity = dir.multiplyScalar(1.6);
+            scene.add(b); bullets.push(b);
+        }
+
+        window.toggleDayNight = () => {
+            isDay = !isDay;
+            // Overrides manual environment overrides for lighting configurations across active maps
+            let currentBase = isDay ? 0.95 : 0.2;
+            ambLight.intensity = currentBase;
+        };
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+
+            if(!isDowned && joystick.active) {
+                player.translateX(joystick.x * 0.17);
+                player.translateZ(joystick.y * 0.17);
+            }
+
+            // --- PROXIMITY STEALH ENEMY CONTROLLER LOGICS ---
+            zombies.forEach((z) => {
+                const targetDistance = z.position.distanceTo(player.position);
+                
+                // FEATURE: Pakkama vantha mattum thaan visibility trigger aaganum logic
+                if (targetDistance <= visibilityRange || z.userData.isBoss) {
+                    z.visible = true; 
+                } else {
+                    z.visible = false; 
+                }
+
+                const d = new THREE.Vector3().subVectors(player.position, z.position).normalize();
+                
+                // FEATURE: Inside visibility thresholds, trigger aggressive hyper speed running logic!
+                let activeSpeed = 0.03 + (currentLevel * 0.012);
+                if (targetDistance < visibilityRange) {
+                    activeSpeed *= z.userData.isBoss ? 2.0 : 3.5; // Extreme 3.5x rush acceleration loops
+                }
+
+                z.position.add(d.multiplyScalar(activeSpeed));
+                z.lookAt(player.position.x, z.position.y, player.position.z);
+                
+                let attackDistance = z.userData.isBoss ? 5.5 : 1.8;
+                if(targetDistance < attackDistance) {
+                    health -= z.userData.isBoss ? 1.6 : 0.7; // Brute force level 5 boss physical damage allocations
+                    document.getElementById('hp-bar').style.width = Math.max(0, health) + "%";
+                    
+                    if(health <= 0 && !isDowned) {
+                        isDowned = true;
+                        if(window.db) window.fbUpdate(window.fbRef(window.db, 'players/' + myId), { status: "downed" });
+                        document.getElementById('overlay').style.display = "flex";
+                    }
+                }
+            });
+
+            // Safe reverse looping mechanism to clear projectiles arrays
+            for (let bi = bullets.length - 1; bi >= 0; bi--) {
+                const b = bullets[bi];
+                b.position.add(b.userData.velocity);
+                let bulletHit = false;
+
+                for (let zi = zombies.length - 1; zi >= 0; zi--) {
+                    const z = zombies[zi];
+                    let boundaryHitRange = z.scale.x * 1.85;
+
+                    if(b.position.distanceTo(z.position.clone().add(new THREE.Vector3(0, 1 * z.scale.y, 0))) < boundaryHitRange) {
+                        z.userData.hp -= 25;
+                        bulletHit = true;
+
+                        let maxHP = z.userData.maxHp || 100;
+                        let hpPercent = (z.userData.hp / maxHP) * 100;
+                        
+                        drawZombieHealthBar(z, Math.max(0, hpPercent));
+
+                        if(currentLevel === 5) {
+                            document.getElementById('boss-hp').style.width = Math.max(0, hpPercent) + "%";
+                        }
+                        
+                        if(z.userData.hp <= 0) {
+                            scene.remove(z);
+                            zombies.splice(zi, 1);
+                            
+                            if(zombies.length === 0) {
+                                if(currentLevel < 5) { 
+                                    currentLevel++; 
+                                    document.getElementById('lvl-ui').innerText = currentLevel; 
+                                    spawnLevel(); 
+                                } else { 
+                                    document.getElementById('status-msg').innerText = "PURE SURVIVAL VICTORY!"; 
+                                    document.getElementById('overlay').style.display = "flex"; 
+                                }
+                            }
+                        }
+                        break; 
+                    }
+                }
+
+                if(bulletHit || b.position.length() > 120) { 
+                    scene.remove(b); 
+                    bullets.splice(bi, 1); 
+                }
+            }
+
+            const camPos = new THREE.Vector3(0, 5, 10).applyQuaternion(player.quaternion).add(player.position);
+            camera.position.lerp(camPos, 0.1);
+            camera.lookAt(player.position.clone().add(new THREE.Vector3(0,1.5,0)));
+            
+            renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+</body>
+</html>
