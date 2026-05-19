@@ -464,7 +464,7 @@
             window.addEventListener('touchstart', (e) => { if(e.touches[0].clientX > window.innerWidth/2) lastLookX = e.touches[0].clientX; });
             window.addEventListener('touchmove', (e) => {
                 if(e.touches[0].clientX > window.innerWidth/2) {
-                    const dx = e.touches[0].clientX - lastLookX; player.rotation.y -= dx * 0.005; lastLookX = e.touches[0].clientX;
+                    const dx = e.touches[0].clientX - lastLookX; player.rotation.y -= dx * 0.025; lastLookX = e.touches[0].clientX;
                 }
             });
             document.getElementById('fire-btn').addEventListener('touchstart', shoot);
