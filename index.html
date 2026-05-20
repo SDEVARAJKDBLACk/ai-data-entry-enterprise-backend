@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>DEAD ZONE: MULTIPLAYER SQUAD SYSTEM</title>
+    <title>DEAD ZONE: SQUAD HORDE ENGINE</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     
@@ -32,9 +32,7 @@
             window.fbOnDisconnect = onDisconnect;
             window.fbOnValue = onValue;
             window.fbSet = set;
-        } catch(e) { 
-            console.error("Firebase connection initialization tracking mismatch error:", e); 
-        }
+        } catch(e) { console.error("Firebase connection initialization error:", e); }
     </script>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #030305; touch-action: none; font-family: 'Segoe UI', sans-serif; }
@@ -46,17 +44,15 @@
         #joystick-knob { position: absolute; top: 20px; left: 20px; width: 32px; height: 32px; background: #ef4444; border-radius: 50%; box-shadow: 0 0 12px #ef4444; }
         #fire-btn { position: absolute; bottom: 35px; right: 35px; width: 68px; height: 68px; background: rgba(185, 28, 28, 0.85); border-radius: 50%; pointer-events: auto; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; font-size: 11px; tracking-widest: 0.1em; border: 3px solid rgba(255,255,255,0.15); text-shadow: 0 1px 3px rgba(0,0,0,0.6); z-index: 60; box-shadow: 0 4px 15px rgba(0,0,0,0.4); }
         #start-prompt { position: fixed; inset: 0; background: #06060a; z-index: 300; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; }
-        
-        /* Tactical Neon Beacon Indicators overlays setup CSS mapping layout */
         .radar-locator { position: absolute; pointer-events: none; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-family: monospace; font-weight: bold; color: #00ffff; background: rgba(0, 255, 255, 0.15); border: 1px solid #00ffff; box-shadow: 0 0 8px #00ffff; z-index: 100; transform: translate(-50%, -50%); display: none; text-shadow: 0 0 2px black; }
     </style>
 </head>
 <body>
-    <div id="radar-container" class="absolute inset-0 pointer-events:none; overflow:hidden; z-index:90;"></div>
+    <div id="radar-container" class="absolute inset-0 pointer-events-none overflow-hidden z-index:90;"></div>
 
     <div id="start-prompt" class="p-6 text-center select-none">
         <h1 class="text-5xl font-black text-red-600 mb-1 italic tracking-widest animate-pulse">DEAD ZONE</h1>
-        <p class="text-gray-500 text-[10px] tracking-widest font-mono mb-8">SQUAD TEAM MULTIPLAYER SUBSYSTEM</p>
+        <p class="text-gray-500 text-[10px] tracking-widest font-mono mb-8">SQUAD MULTIPLAYER SHARED SYSTEM</p>
         
         <div class="glass max-w-sm w-full p-6 rounded-2xl border border-white/5 shadow-2xl flex flex-col gap-4 mb-16">
             <label class="text-left text-xs font-mono text-gray-400 tracking-wider">ENTER OPERATOR NAME:</label>
@@ -111,22 +107,18 @@
 
     <script type="module">
         let scene, camera, renderer, player, clock, ambLight, sun, spotLight;
-        let otherPlayers = {}, zombies = [], bullets = [], enemyProjectiles = [], batteryDrops = [];
+        let otherPlayers = {}, zombies = {}, bullets = [], enemyProjectiles = [], batteryDrops = [];
         let joystick = { active: false, x: 0, y: 0 };
         let health = 100, currentLevel = 1, myId = "P_" + Math.floor(Math.random()*9999);
         let isDowned = false, lastLookX = 0, visibilityRange = 70;
         let flashlightPower = true, batteryLife = 100.0;
         let audioCtx = null, masterGain = null, lastBgmBeatTime = 0;
         let playerIdentityName = "OPERATOR_1";
-        
-        // Spawn Location Setup Realignment: Matrix coordination constant for orey place spawning points
-        const SQUAD_SPAWN_X = 0.0;
-        const SQUAD_SPAWN_Z = 0.0;
+        let isLobbyLeader = false;
 
         window.startAudioAndGame = () => {
             const inputVal = document.getElementById('username-input').value.trim();
             if(inputVal !== "") { playerIdentityName = inputVal.toUpperCase(); }
-            
             document.getElementById('start-prompt').style.display = 'none';
             setupSynthAudioEngine();
             init();
@@ -141,7 +133,7 @@
                     masterGain.gain.setValueAtTime(0.4, audioCtx.currentTime);
                     masterGain.connect(audioCtx.destination);
                 }
-            } catch(e) { console.error("Audio initialization issue bypass active:", e); }
+            } catch(e) { console.error("Audio bypass setup issue:", e); }
         }
 
         function playSynthFX(freq, duration, type, volume) {
@@ -192,7 +184,7 @@
             const ctx = canvas.getContext('2d');
             ctx.clearRect(0, 0, 256, 64);
             ctx.font = '900 22px "Courier New", monospace';
-            ctx.fillStyle = '#00ffff'; // Squad Cyan Glow color theme mapping tags
+            ctx.fillStyle = '#00ffff'; 
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(text, 128, 32);
@@ -209,8 +201,7 @@
             
             const myPresenceRef = window.fbRef(window.db, 'players/' + myId);
             window.fbOnDisconnect(myPresenceRef).remove();
-            
-            // Room Synced Level Control Listeners Engine Integration Mapping Global States
+
             window.fbOnValue(window.fbRef(window.db, 'matchState/currentLevel'), (snapshot) => {
                 const val = snapshot.val();
                 if(val && val !== currentLevel) {
@@ -220,13 +211,60 @@
                 }
             });
 
-            // Listening to bullet stream instances updates on real-time network layer threads
+            // 🟢 FIXED ENEMIES CORE TRACKING RECEIVER BLOCK
+            window.fbOnValue(window.fbRef(window.db, 'matchState/zombies'), (snapshot) => {
+                const data = snapshot.val() || {};
+                let totalAliveZombies = Object.keys(data).length;
+                
+                for(let zId in data) {
+                    let zData = data[zId];
+                    
+                    if(!zombies[zId]) {
+                        let isBoss = zData.zType === 'BOSS';
+                        const zMesh = createCharacter(0x44ff44, false, zData.zType);
+                        zMesh.userData.zType = zData.zType;
+                        zMesh.userData.isBoss = isBoss;
+                        if(isBoss) zMesh.scale.set(7,7,7);
+                        
+                        scene.add(zMesh);
+                        zombies[zId] = zMesh;
+                    }
+                    
+                    zombies[zId].position.set(zData.x, zData.y, zData.z);
+                    zombies[zId].lookAt(zData.tx, zData.y, zData.tz);
+                    zombies[zId].userData.hp = zData.hp;
+                    zombies[zId].userData.maxHp = zData.maxHp;
+                    
+                    let pct = (zData.hp / zData.maxHp) * 100;
+                    drawZombieHealthBar(zombies[zId], Math.max(0, pct));
+                    if(zData.zType === 'BOSS') {
+                        document.getElementById('boss-hp').style.width = Math.max(0, pct) + "%";
+                    }
+                }
+
+                for(let zId in zombies) {
+                    if(!data[zId]) {
+                        scene.remove(zombies[zId]);
+                        delete zombies[zId];
+                    }
+                }
+
+                if(totalAliveZombies === 0 && Object.keys(zombies).length === 0 && isLobbyLeader) {
+                    if(currentLevel < 5) {
+                        window.fbSet(window.fbRef(window.db, 'matchState/currentLevel'), currentLevel + 1);
+                    } else {
+                        document.getElementById('status-msg').innerText = "SQUAD VICTORY!"; 
+                        document.getElementById('overlay').style.display = "flex"; 
+                        window.fbSet(window.fbRef(window.db, 'matchState/currentLevel'), 1);
+                    }
+                }
+            });
+
             window.fbOnValue(window.fbRef(window.db, 'bullets'), (snapshot) => {
                 const data = snapshot.val() || {};
                 for(let key in data) {
-                    if(data[key].owner === myId) continue; // Skip local computation blocks
+                    if(data[key].owner === myId) continue; 
                     
-                    // Render dynamic network flash shots tracer mapping inside world scene matrix
                     const remoteBulletMesh = new THREE.Mesh(new THREE.SphereGeometry(0.18), new THREE.MeshBasicMaterial({ color: 0xff3300 }));
                     remoteBulletMesh.position.set(data[key].x, data[key].y, data[key].z);
                     remoteBulletMesh.userData.velocity = new THREE.Vector3(data[key].vx, data[key].vy, data[key].vz);
@@ -234,30 +272,28 @@
                     scene.add(remoteBulletMesh);
                     bullets.push(remoteBulletMesh);
                 }
-                // Wipe data frame array once cached matrix passes onto execution queues securely
                 if(Math.random() < 0.05) window.fbRemove(window.fbRef(window.db, 'bullets'));
             });
 
             window.fbOnValue(window.fbRef(window.db, 'players'), (snapshot) => {
                 const data = snapshot.val() || {};
-                const playerIds = Object.keys(data);
+                const playerIds = Object.keys(data).sort();
                 document.getElementById('count-ui').innerText = playerIds.length;
+                
+                isLobbyLeader = (playerIds[0] === myId);
                 
                 for(let id in data) {
                     if(id === myId) continue;
                     
                     if(!otherPlayers[id]) {
-                        // Fix Detail: Remote name tags tracing overhead attachment initialization mapping
                         otherPlayers[id] = createCharacter(0x00ffcc, false, data[id].name || 'SQUAD');
                         
-                        // Add flashlight runtime spot component onto foreign player framework
                         const fLight = new THREE.SpotLight(0xffffff, 0.0, 30, Math.PI / 6, 0.5, 1);
                         fLight.position.set(0, 1.5, 0);
                         otherPlayers[id].add(fLight);
                         otherPlayers[id].add(fLight.target);
                         otherPlayers[id].userData.flashlightComponent = fLight;
                         
-                        // Add locator pointer target mapping references tracking labels
                         const radNode = document.createElement('div');
                         radNode.className = 'radar-locator';
                         radNode.id = 'radar-' + id;
@@ -270,18 +306,7 @@
                     
                     otherPlayers[id].position.set(data[id].x, data[id].y, data[id].z);
                     otherPlayers[id].rotation.y = data[id].ry;
-                    
-                    // Flashlight sync tracking implementation blocks validation
-                    if(otherPlayers[id].userData.flashlightComponent) {
-                        const targetLight = otherPlayers[id].userData.flashlightComponent;
-                        if(data[id].flashPower && (data[id].batteryLife > 0)) {
-                            targetLight.intensity = 12.0;
-                            let localForward = new THREE.Vector3(0, 0, -4).applyQuaternion(otherPlayers[id].quaternion);
-                            targetLight.target.position.copy(otherPlayers[id].position).add(localForward);
-                        } else {
-                            targetLight.intensity = 0.0;
-                        }
-                    }
+                    otherPlayers[id].name = data[id].name || 'SQUAD';
                 }
                 for(let id in otherPlayers) {
                     if(!data[id]) {
@@ -289,6 +314,11 @@
                         scene.remove(otherPlayers[id]);
                         delete otherPlayers[id];
                     }
+                }
+
+                // 🟢 TRIGGER ENGINE RE-SYNC FOR FIRST LEADER SPAWN INSTANCE
+                if(isLobbyLeader && Object.keys(zombies).length === 0) {
+                    spawnLevel();
                 }
             });
         }
@@ -322,16 +352,24 @@
 
             for(let i=0; i<35; i++) createBuilding(Math.random()*200-100, Math.random()*200-100);
 
-            // Fix Detail: Everyone spawns uniformly at orey point matrix nodes setup initialization parameters
             player = createCharacter(0x3b82f6, true, playerIdentityName); 
-            player.position.set(SQUAD_SPAWN_X, 0, SQUAD_SPAWN_Z);
+            player.position.set(0, 0, 0);
             scene.add(player);
             
             clock = new THREE.Clock();
             setupControls();
 
-            if(window.db) initMultiplayer();
-            spawnLevel();
+            if(window.db) {
+                // Initialize presence update immediately to capture role initialization tracking
+                window.fbUpdate(window.fbRef(window.db, 'players/' + myId), {
+                    x: player.position.x, y: player.position.y, z: player.position.z,
+                    ry: player.rotation.y, name: playerIdentityName
+                }).then(() => {
+                    initMultiplayer();
+                });
+            } else {
+                spawnLevel();
+            }
             animate();
         }
 
@@ -363,7 +401,6 @@
             const head = new THREE.Mesh(new THREE.SphereGeometry(0.35), mat); head.position.y = 1.9;
             group.add(body, head);
 
-            // Dynamic overhead configuration updates for remote or locally managed player nodes 
             if(isMe || color === 0x00ffcc) {
                 const gun = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.2, 0.9), new THREE.MeshStandardMaterial({ color: 0x111111 }));
                 gun.position.set(0.4, 1.2, -0.5); group.add(gun);
@@ -386,71 +423,55 @@
             return group;
         }
 
-        function spawnBatteryCell(pos) {
-            const bGroup = new THREE.Group();
-            const cell = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.6, 8), new THREE.MeshStandardMaterial({ color: 0xeab308, emissive: 0xeab308, roughness:0.2 }));
-            cell.position.y = 0.3;
-            
-            // Fix Detail: Yellow neon distance glow tracker boundary loops addition
-            const glow = new THREE.Mesh(new THREE.SphereGeometry(0.7, 16, 16), new THREE.MeshBasicMaterial({ color: 0xffe000, transparent: true, opacity: 0.25 }));
-            glow.position.y = 0.3;
-            
-            bGroup.add(cell, glow); bGroup.position.copy(pos);
-            scene.add(bGroup); batteryDrops.push(bGroup);
-        }
-
         function spawnLevel() {
-            zombies.forEach(z => scene.remove(z)); enemyProjectiles.forEach(p => scene.remove(p));
-            batteryDrops.forEach(b => scene.remove(b));
-            zombies = []; enemyProjectiles = []; batteryDrops = [];
+            for(let id in zombies) { scene.remove(zombies[id]); }
+            zombies = {}; enemyProjectiles.forEach(p => scene.remove(p)); enemyProjectiles = [];
 
             let progressiveEnvironments = {
                 1: { sky: 0xa3b8cc, fog: 0.005, view: 70, light: 1.0 },
                 2: { sky: 0x445261, fog: 0.040, view: 40, light: 0.55 }, 
                 3: { sky: 0x18261f, fog: 0.070, view: 30, light: 0.35 }, 
-                4: { sky: 0x06070a, fog: 0.010, view: 40, light: 0.95 }, 
-                5: { sky: 0x2b0404, fog: 0.010, view: 80, light: 5.5 }  
+                4: { sky: 0x0f111a, fog: 0.015, view: 55, light: 0.85 }, 
+                5: { sky: 0x2b0404, fog: 0.190, view: 12, light: 0.10 }  
             };
 
             let currentEnv = progressiveEnvironments[currentLevel] || progressiveEnvironments[1];
             visibilityRange = currentEnv.view;
             scene.background = new THREE.Color(currentEnv.sky);
             if(scene.fog) { scene.fog.color.setHex(currentEnv.sky); scene.fog.density = currentEnv.fog; }
-            
-            let lightScale = flashlightPower && batteryLife > 0 ? currentEnv.light : 0.02;
-            ambLight.intensity = lightScale; sun.intensity = lightScale;
 
             const isBoss = currentLevel === 5;
-            const count = isBoss ? 1 : 6 + (currentLevel * 3);
-            let types = ['CREEPER', 'SPITTER', 'SPRINTER', 'STALKER', 'BOSS'];
-            let currentType = types[currentLevel - 1] || 'CREEPER';
-
             document.getElementById('boss-hud').style.display = isBoss ? 'block' : 'none';
-            playSynthFX(260 + (currentLevel * 60), 0.55, 'sine', 0.25);
 
-            for(let i=0; i<count; i++) {
-                const z = createCharacter(0x44ff44, false, currentType);
-                z.userData.zType = currentType;
-                z.userData.isBoss = isBoss;
-                z.userData.hp = isBoss ? 4000 : (100 + currentLevel * 50);
-                z.userData.maxHp = z.userData.hp;
-                z.userData.lastShotTime = 0; 
-                z.userData.flankAngle = (Math.random() - 0.5) * 1.6; 
-
-                if(isBoss) z.scale.set(7,7,7);
-
-                const angle = Math.random() * Math.PI * 2;
-                const dist = 35 + Math.random() * 40;
-                z.position.set(player.position.x + Math.cos(angle)*dist, 0, player.position.z + Math.sin(angle)*dist);
-                z.visible = false;
+            if(window.db && isLobbyLeader) {
+                window.fbSet(window.fbRef(window.db, 'matchState/zombies'), null);
                 
-                scene.add(z); zombies.push(z);
+                const count = isBoss ? 1 : 15; // Set explicitly to 15 flat as requested
+                let types = ['CREEPER', 'SPITTER', 'SPRINTER', 'STALKER', 'BOSS'];
+                let currentType = types[currentLevel - 1] || 'CREEPER';
+                
+                let initialZombiesBatch = {};
+                for(let i=0; i<count; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = 35 + Math.random() * 30;
+                    let zx = player.position.x + Math.cos(angle)*dist;
+                    let zz = player.position.z + Math.sin(angle)*dist;
+                    let zHp = isBoss ? 4000 : 30;
+                    
+                    let uniqueZId = "Z_" + i + "_" + Math.floor(Math.random()*999);
+                    initialZombiesBatch[uniqueZId] = {
+                        zType: currentType,
+                        x: zx, y: 0, z: zz,
+                        tx: 0, tz: 0,
+                        hp: zHp, maxHp: zHp
+                    };
+                }
+                window.fbSet(window.fbRef(window.db, 'matchState/zombies'), initialZombiesBatch);
             }
         }
 
         function setupControls() {
             const base = document.getElementById('joystick-base'), knob = document.getElementById('joystick-knob');
-            
             base.addEventListener('touchstart', () => { joystick.active = true; });
             base.addEventListener('touchmove', (e) => {
                 const t = e.touches[0], r = base.getBoundingClientRect();
@@ -464,7 +485,9 @@
             window.addEventListener('touchstart', (e) => { if(e.touches[0].clientX > window.innerWidth/2) lastLookX = e.touches[0].clientX; });
             window.addEventListener('touchmove', (e) => {
                 if(e.touches[0].clientX > window.innerWidth/2) {
-                    const dx = e.touches[0].clientX - lastLookX; player.rotation.y -= dx * 0.025; lastLookX = e.touches[0].clientX;
+                    const dx = e.touches[0].clientX - lastLookX; 
+                    player.rotation.y -= dx * 0.025; 
+                    lastLookX = e.touches[0].clientX;
                 }
             });
             document.getElementById('fire-btn').addEventListener('touchstart', shoot);
@@ -482,10 +505,8 @@
             scene.add(b); 
             bullets.push(b);
 
-            // Fix Detail: Write projectile metadata into Firebase realtime tree streams for network sync
             if(window.db) {
-                const bulletListRef = window.fbRef(window.db, 'bullets');
-                window.fbPush(bulletListRef, {
+                window.fbPush(window.fbRef(window.db, 'bullets'), {
                     owner: myId,
                     x: b.position.x, y: b.position.y, z: b.position.z,
                     vx: b.userData.velocity.x, vy: b.userData.velocity.y, vz: b.userData.velocity.z
@@ -507,20 +528,31 @@
 
             if(joystick.active) { player.translateX(joystick.x * 0.16); player.translateZ(joystick.y * 0.16); }
 
-            // Sync dynamic parameters inclusive of structural flashlight status tags via socket nodes
-            if(window.db && Math.random() < 0.25) {
+            if(window.db && Math.random() < 0.2) {
                 window.fbUpdate(window.fbRef(window.db, 'players/' + myId), {
-                    x: player.position.x,
-                    y: player.position.y,
-                    z: player.position.z,
-                    ry: player.rotation.y,
-                    name: playerIdentityName,
-                    flashPower: flashlightPower,
-                    batteryLife: batteryLife
+                    x: player.position.x, y: player.position.y, z: player.position.z,
+                    ry: player.rotation.y, name: playerIdentityName
                 });
             }
 
-            // Fix Detail: Neon Indicators Dynamic Matrix Projection Logic Engine Loop
+            let progressiveEnvironments = { 1:1.0, 2:0.55, 3:0.35, 4:0.85, 5:0.10 };
+            let currentBaseLight = progressiveEnvironments[currentLevel] || 1.0;
+
+            if (flashlightPower && batteryLife > 0) {
+                batteryLife = Math.max(0, batteryLife - 0.035); 
+                document.getElementById('bat-bar').style.width = batteryLife + "%";
+                document.getElementById('bat-text').innerText = Math.floor(batteryLife) + "%";
+                spotLight.intensity = 15.0; ambLight.intensity = currentBaseLight; sun.intensity = currentBaseLight;
+            } else {
+                spotLight.intensity = 0.0; ambLight.intensity = 0.20; sun.intensity = 0.20;
+                document.getElementById('bat-text').innerText = batteryLife <= 0 ? "EMPTY" : "OFF";
+            }
+
+            spotLight.position.copy(player.position).add(new THREE.Vector3(0, 1.5, 0));
+            let forwardVector = new THREE.Vector3(0, 0, -5).applyQuaternion(player.quaternion);
+            spotLight.target.position.copy(player.position).add(forwardVector);
+
+            // 🟢 FIXED RE-ALIGNED RADAR TRACKING MAPPER (Displays real custom identity name on distance label instead of generic squad phrase)
             for (let id in otherPlayers) {
                 const remPlayer = otherPlayers[id];
                 const radarElement = remPlayer.userData.radarElement;
@@ -528,16 +560,13 @@
 
                 let distanceToFriend = player.position.distanceTo(remPlayer.position);
                 
-                // Show tracking locator if friend gets far away from visibility spectrum arrays
                 if (distanceToFriend > 20) {
                     let projVector = remPlayer.position.clone().add(new THREE.Vector3(0, 2, 0));
                     projVector.project(camera);
 
-                    // Check bounds to determine if player is inside viewport coordinates mapping
                     let sx = (projVector.x * .5 + .5) * window.innerWidth;
                     let sy = (projVector.y * -.5 + .5) * window.innerHeight;
 
-                    // Bound constraints clamp maps to prevent boundary bleed overs 
                     sx = Math.max(25, Math.min(window.innerWidth - 35, sx));
                     sy = Math.max(25, Math.min(window.innerHeight - 35, sy));
 
@@ -550,153 +579,81 @@
                 }
             }
 
-            let beatRate = currentLevel === 5 ? 0.35 : (0.95 - (currentLevel * 0.14));
-            if(now - lastBgmBeatTime > beatRate) {
-                let baseFreq = currentLevel === 5 ? 55 : (85 - (currentLevel * 8)); 
-                playSynthFX(baseFreq, 0.18, 'triangle', currentLevel === 5 ? 0.28 : 0.16);
-                lastBgmBeatTime = now;
-            }
-
-            let progressiveEnvironments = { 1:1.0, 2:0.55, 3:0.35, 4:0.15, 5:0.10 };
-            let currentBaseLight = progressiveEnvironments[currentLevel] || 1.0;
-
-            if (flashlightPower && batteryLife > 0) {
-                batteryLife = Math.max(0, batteryLife - 0.035); 
-                document.getElementById('bat-bar').style.width = batteryLife + "%";
-                document.getElementById('bat-text').innerText = Math.floor(batteryLife) + "%";
-                spotLight.intensity = 15.0; ambLight.intensity = currentBaseLight; sun.intensity = currentBaseLight;
-                if(batteryLife <= 0) { flashlightPower = false; playSynthFX(120, 0.4, 'sawtooth', 0.3); } 
-            } else {
-                spotLight.intensity = 0.0; ambLight.intensity = 0.015; sun.intensity = 0.015;
-                document.getElementById('bat-text').innerText = batteryLife <= 0 ? "EMPTY" : "OFF";
-            }
-
-            spotLight.position.copy(player.position).add(new THREE.Vector3(0, 1.5, 0));
-            let forwardVector = new THREE.Vector3(0, 0, -5).applyQuaternion(player.quaternion);
-            spotLight.target.position.copy(player.position).add(forwardVector);
-
-            // Shared Batteries Core pickup validation rules mappings
-            for(let bi = batteryDrops.length - 1; bi >= 0; bi--) {
-                const bCell = batteryDrops[bi]; 
-                bCell.rotation.y += 0.03;
-                
-                // Yellow core proximity visual glow adjustments depending on vector distance metrics
-                let distToBattery = player.position.distanceTo(bCell.position);
-                if(distToBattery > 25) {
-                    bCell.children[1].scale.setScalar(1.5 + Math.sin(now*5)*0.3); // High glow pulse if far away mapping triggers
-                } else {
-                    bCell.children[1].scale.setScalar(1.0);
+            if(window.db && isLobbyLeader) {
+                let currentZombiesUpdates = {};
+                let allActiveSquadPlayers = [];
+                allActiveSquadPlayers.push({ id: myId, pos: player.position });
+                for(let pId in otherPlayers) {
+                    allActiveSquadPlayers.push({ id: pId, pos: otherPlayers[pId].position });
                 }
 
-                if(player.position.distanceTo(bCell.position) < 1.6) {
-                    batteryLife = Math.min(100, batteryLife + 35.0);
-                    playSynthFX(680, 0.25, 'sine', 0.2);
-                    scene.remove(bCell); 
-                    batteryDrops.splice(bi, 1);
+                for(let zId in zombies) {
+                    let zMesh = zombies[zId];
+                    let closestTarget = null;
+                    let minimumDistance = 99999;
+                    
+                    allActiveSquadPlayers.forEach(p => {
+                        let d = zMesh.position.distanceTo(p.pos);
+                        if(d < minimumDistance) {
+                            minimumDistance = d;
+                            closestTarget = p.pos;
+                        }
+                    });
+
+                    if(closestTarget) {
+                        let dirToTarget = new THREE.Vector3().subVectors(closestTarget, zMesh.position).normalize();
+                        
+                        let mSpeed = 0.015; 
+                        if(zMesh.userData.zType === 'SPRINTER') mSpeed = 0.04; 
+                        if(zMesh.userData.zType === 'BOSS') mSpeed = 0.02;
+                        if(zMesh.userData.zType === 'SPITTER') mSpeed = 0.01;
+
+                        zMesh.position.add(dirToTarget.multiplyScalar(mSpeed));
+                        
+                        currentZombiesUpdates[zId + '/x'] = zMesh.position.x;
+                        currentZombiesUpdates[zId + '/y'] = zMesh.position.y;
+                        currentZombiesUpdates[zId + '/z'] = zMesh.position.z;
+                        currentZombiesUpdates[zId + '/tx'] = closestTarget.x;
+                        currentZombiesUpdates[zId + '/tz'] = closestTarget.z;
+                    }
+                }
+                if(Object.keys(currentZombiesUpdates).length > 0) {
+                    window.fbUpdate(window.fbRef(window.db, 'matchState/zombies'), currentZombiesUpdates);
                 }
             }
 
-            zombies.forEach((z) => {
+            for(let zId in zombies) {
+                let z = zombies[zId];
                 const targetDist = z.position.distanceTo(player.position);
                 let maxVisibilityThreshold = visibilityRange;
-                if (!flashlightPower || batteryLife <= 0) maxVisibilityThreshold = 4.0; 
+                if (!flashlightPower || batteryLife <= 0) maxVisibilityThreshold = 15.0;
 
-                if (z.userData.isBoss) z.visible = true;
-                else if (z.userData.zType === 'STALKER') z.visible = (targetDist < 10);
-                else z.visible = (targetDist <= maxVisibilityThreshold);
-
-                if (Math.random() < 0.007 && z.visible) {
-                    let growlFreq = z.userData.isBoss ? 65 : (140 - (currentLevel * 12));
-                    playSpatialZombieSound(z.position, growlFreq, z.userData.isBoss ? 0.4 : 0.22);
-                }
-
-                let dirToPlayer = new THREE.Vector3().subVectors(player.position, z.position).normalize();
-
-                if (z.userData.zType === 'SPRINTER' || z.userData.zType === 'CREEPER') {
-                    if (targetDist > 8 && targetDist < 35) {
-                        let lateralAxis = new THREE.Vector3(-dirToPlayer.z, 0, dirToPlayer.x);
-                        dirToPlayer.addScaledVector(lateralAxis, z.userData.flankAngle).normalize();
-                    }
-                }
-
-                let mSpeed = 0.095;
-                if(z.userData.zType === 'SPRINTER') mSpeed = 0.22; 
-                if(z.userData.zType === 'BOSS') mSpeed = 0.095;
-                if(z.userData.zType === 'SPITTER') mSpeed = 0.095; 
-
-                if(z.userData.zType === 'SPITTER' && targetDist < 42 && targetDist > 10) {
-                    mSpeed = 0.005; 
-                    if (now - z.userData.lastShotTime > 2.5 && z.visible) { 
-                        playSpatialZombieSound(z.position, 380, 0.3);
-                        const spit = new THREE.Mesh(new THREE.SphereGeometry(0.25), new THREE.MeshBasicMaterial({ color: 0x00ff66 }));
-                        spit.position.copy(z.position).add(new THREE.Vector3(0, 1.5, 0));
-                        let spitDir = new THREE.Vector3().subVectors(player.position, spit.position).normalize();
-                        spit.userData.velocity = spitDir.multiplyScalar(0.55);
-                        scene.add(spit); enemyProjectiles.push(spit);
-                        z.userData.lastShotTime = now;
-                    }
-                }
-
-                    z.position.add(dirToPlayer.multiplyScalar(mSpeed));
-                z.lookAt(player.position.x, z.position.y, player.position.z);
+                z.visible = z.userData.isBoss ? true : (targetDist <= maxVisibilityThreshold);
 
                 let attackRange = z.userData.isBoss ? 5.5 : 1.8;
                 if(targetDist < attackRange) {
-                    health -= z.userData.isBoss ? 3.5 : 0.8;
+                    health -= z.userData.isBoss ? 1.5 : 0.8;
                     document.getElementById('hp-bar').style.width = Math.max(0, health) + "%";
-                    if(Math.random() < 0.15) playSynthFX(90, 0.08, 'sawtooth', 0.25);
                     if(health <= 0 && !isDowned) { 
                         isDowned = true; 
-                        playSynthFX(45, 0.8, 'sawtooth', 0.4); 
                         document.getElementById('overlay').style.display = "flex"; 
                     }
                 }
-            });
-
-            for(let pi = enemyProjectiles.length - 1; pi >= 0; pi--) {
-                const p = enemyProjectiles[pi]; p.position.add(p.userData.velocity);
-                if(p.position.distanceTo(player.position.clone().add(new THREE.Vector3(0,1,0))) < 1.3) {
-                    health -= 15; document.getElementById('hp-bar').style.width = Math.max(0, health) + "%";
-                    playSynthFX(110, 0.15, 'sawtooth', 0.25); 
-                    scene.remove(p); enemyProjectiles.splice(pi, 1);
-                    if(health <= 0 && !isDowned) { isDowned = true; document.getElementById('overlay').style.display = "flex"; }
-                    continue;
-                }
-                if(p.position.distanceTo(player.position) > 80) { scene.remove(p); enemyProjectiles.splice(pi, 1); }
             }
 
             for (let bi = bullets.length - 1; bi >= 0; bi--) {
                 const b = bullets[bi]; b.position.add(b.userData.velocity); let hit = false;
                 
-                for (let zi = zombies.length - 1; zi >= 0; zi--) {
-                    const z = zombies[zi]; let range = z.scale.x * 1.8;
+                for (let zId in zombies) {
+                    const z = zombies[zId]; let range = z.scale.x * 1.8;
                     if(b.position.distanceTo(z.position.clone().add(new THREE.Vector3(0, 1*z.scale.y, 0))) < range) {
-                        z.userData.hp -= 25; hit = true;
-                        let pct = (z.userData.hp / z.userData.maxHp) * 100;
-                        drawZombieHealthBar(z, Math.max(0, pct));
-                        playSpatialZombieSound(z.position, 220, 0.18);
-                        if(currentLevel === 5) document.getElementById('boss-hp').style.width = Math.max(0, pct) + "%";
-
-                        if(z.userData.hp <= 0) {
-                            if(Math.random() < 0.45) spawnBatteryCell(z.position.clone());
-                            playSpatialZombieSound(z.position, 80, 0.35);
-                            scene.remove(z); zombies.splice(zi, 1);
-                            
-                            // Fix Detail: Team Synced Shared Level Clearance logic validation 
-                            if(zombies.length === 0) {
-                                if(currentLevel < 5) {
-                                    let nextLvl = currentLevel + 1;
-                                    if(window.db && b.userData.owner === myId) {
-                                        window.fbSet(window.fbRef(window.db, 'matchState/currentLevel'), nextLvl);
-                                    } else if (!window.db) {
-                                        currentLevel = nextLvl;
-                                        document.getElementById('lvl-ui').innerText = currentLevel;
-                                        spawnLevel();
-                                    }
-                                } else { 
-                                    document.getElementById('status-msg').innerText = "SQUAD VICTORY!"; 
-                                    document.getElementById('overlay').style.display = "flex"; 
-                                }
+                        hit = true;
+                        let currentCalculatedHp = z.userData.hp - 25;
+                        if(window.db) {
+                            if(currentCalculatedHp <= 0) {
+                                window.fbRemove(window.fbRef(window.db, 'matchState/zombies/' + zId));
+                            } else {
+                                window.fbSet(window.fbRef(window.db, 'matchState/zombies/' + zId + '/hp'), currentCalculatedHp);
                             }
                         }
                         break;
